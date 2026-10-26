@@ -6144,6 +6144,19 @@ void TextureCache::InvalidateMemoryFromGPU(uint64_t address, uint64_t size) {
 		if (!image.Overlaps(address, size)) {
 			continue;
 		}
+		// If a write fills one or more complete layers of a depth/stencil texture, but not all of them,
+		// leave it rather than invalidating it.
+		if (image.IsGpuModified() && (image.depth_id != 0 || image.info.IsDepth())) {
+			const auto& data  = image.info.data;
+			const auto  count = image.depth_id != 0 ? image.stencil_subresources.layer_count
+			                                        : image.info.resources.layers;
+			const auto  layer = count > 1 ? data.size / count : 0;
+			if (layer != 0 && data.size % count == 0 && size < data.size && size % layer == 0 &&
+			    address >= data.address && address + size <= data.End() &&
+			    (address - data.address) % layer == 0) {
+				continue;
+			}
+		}
 		if (image.IsGpuModified()) {
 			// The buffer cache takes ownership of these bytes; its Add bumps as well.
 			// KYTY_ALIAS_BYTES: only of these bytes; the image keeps its others (rebuilds and
